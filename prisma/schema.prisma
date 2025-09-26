@@ -1,0 +1,115 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+model Salon {
+  id               Int        @id @default(autoincrement())
+  name             String
+  ownerName        String?
+  phone            String?
+  location         String?
+  address          String?
+  subscriptionPlan String     @default("basic")
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  users            User[]
+  services         Service[]
+  appointments     Appointment[]
+  payments         Payment[]
+  products         Product[]
+  expenses         Expense[]
+}
+
+model User {
+  id             Int          @id @default(autoincrement())
+  salon          Salon        @relation(fields: [salonId], references: [id])
+  salonId        Int
+  name           String
+  email          String       @unique
+  phone          String?      @unique
+  role           String
+  passwordHash   String
+  commissionRate Float        @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  appointments   Appointment[] @relation("StaffAppointments")
+}
+
+model Service {
+  id          Int          @id @default(autoincrement())
+  salon       Salon        @relation(fields: [salonId], references: [id])
+  salonId     Int
+  name        String
+  description String?
+  price       Float
+  durationMin Int?          
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  appointments Appointment[]
+}
+
+model Appointment {
+  id              Int        @id @default(autoincrement())
+  salon           Salon      @relation(fields: [salonId], references: [id])
+  salonId         Int
+  service         Service?   @relation(fields: [serviceId], references: [id])
+  serviceId       Int?
+  staff           User?      @relation("StaffAppointments", fields: [staffId], references: [id])
+  staffId         Int?
+  customerName    String
+  customerPhone   String?
+  appointmentTime DateTime?
+  status          String     @default("scheduled") // start as scheduled
+  paymentStatus   String     @default("unpaid")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  payments        Payment[]
+}
+
+
+model Payment {
+  id            Int         @id @default(autoincrement())
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+  appointmentId Int?
+  salon         Salon       @relation(fields: [salonId], references: [id])
+  salonId       Int
+  amount        Float
+  method        String
+  transactionId String?     
+  paidAt        DateTime    @default(now())
+}
+
+model Product {
+  id         Int      @id @default(autoincrement())
+  salon      Salon    @relation(fields: [salonId], references: [id])
+  salonId    Int
+  name       String
+  price      Float
+  stockQty   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+
+model Expense {
+  id        Int      @id @default(autoincrement())
+  salon     Salon    @relation(fields: [salonId], references: [id])
+  salonId   Int
+  category  String?  // rent, salary, supplies
+  amount    Float
+  note      String?
+  createdAt DateTime @default(now())
+}
+
