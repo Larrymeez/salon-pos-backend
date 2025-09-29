@@ -4,16 +4,11 @@ import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import jwt from "jsonwebtoken";
 
-
-
 dotenv.config();
 
 const app = express();
 const prisma = new PrismaClient();
 
-
-
-// helper: remove sensitive fields before returning user data
 
 function sanitizeUser(user) {
   if (!user) return null;
@@ -21,11 +16,14 @@ function sanitizeUser(user) {
   return safe;
 }
 
-
 app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallbacksecret";
+const authMiddleware = (req, res, next) => {
+  next();
+
+};
 
 // Test route
 app.get("/", (req, res) => {
@@ -141,9 +139,6 @@ app.post("/appointments", async (req, res) => {
     res.status(500).json({ error: "Failed to create appointment" });
   }
 });
-// ========================
-// SERVICES ROUTES
-// ========================
 
 // Create a new service
 app.post("/services", async (req, res) => {
@@ -431,27 +426,32 @@ app.get("/users", authenticateToken, async (req, res) => {
 // Create payment
 app.post("/payments", authMiddleware, async (req, res) => {
   try {
-    const { appointmentId, amount, method, status } = req.body;
+    const { appointmentId, salonId, amount, method, status, transactionId } = req.body;
 
-    if (!appointmentId || !amount || !method) {
-      return res.status(400).json({ error: "appointmentId, amount, and method are required" });
+    if (!appointmentId || !amount || !method || !salonId) {
+      return res.status(400).json({ error: "appointmentId, salonId, amount, and method are required" });
     }
 
     const payment = await prisma.payment.create({
       data: {
         appointmentId,
+        salonId,
         amount,
         method,
+        transactionId: transactionId || null,
+        paidAt: new Date(),
         status: status || "pending",
       },
     });
 
     res.json(payment);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to create payment" });
+    console.error(error);  // <-- this prints the actual error
+    res.status(500).json({ error: error.message }); // <-- show real error in response
   }
 });
+
+
 // Get all payments
 app.get("/payments", authMiddleware, async (req, res) => {
   try {
@@ -481,6 +481,46 @@ app.get("/payments/:id", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Failed to fetch payment" });
+  }
+});
+
+// Update payment
+app.put("/payments/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, method, transactionId, status, paidAt } = req.body;
+
+    const updatedPayment = await prisma.payment.update({
+      where: { id: parseInt(id) },
+      data: {
+        amount,
+        method,
+        transactionId,
+        status,
+        paidAt: paidAt ? new Date(paidAt) : undefined,
+      },
+    });
+
+    res.json(updatedPayment);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to update payment" });
+  }
+});
+
+// Delete payment
+app.delete("/payments/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.payment.delete({
+      where: { id: parseInt(id) },
+    });
+
+    res.json({ message: "Payment deleted successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to delete payment" });
   }
 });
 
