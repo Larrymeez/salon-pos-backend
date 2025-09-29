@@ -403,6 +403,7 @@ app.post("/login", async (req, res) => {
 });
 
 // ------------------ MIDDLEWARE ------------------
+
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
