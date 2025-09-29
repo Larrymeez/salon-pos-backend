@@ -428,6 +428,32 @@ app.get("/users", authenticateToken, async (req, res) => {
   }
 });
 
+// Create payment
+app.post("/payments", authMiddleware, async (req, res) => {
+  try {
+    const { appointmentId, amount, method, status } = req.body;
+
+    if (!appointmentId || !amount || !method) {
+      return res.status(400).json({ error: "appointmentId, amount, and method are required" });
+    }
+
+    const payment = await prisma.payment.create({
+      data: {
+        appointmentId,
+        amount,
+        method,
+        status: status || "pending",
+      },
+    });
+
+    res.json(payment);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to create payment" });
+  }
+});
+
+
 
 
 // Start server
