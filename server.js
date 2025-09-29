@@ -2,14 +2,30 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
+import jwt from "jsonwebtoken";
+
+
 
 dotenv.config();
 
 const app = express();
 const prisma = new PrismaClient();
 
+
+
+// helper: remove sensitive fields before returning user data
+
+function sanitizeUser(user) {
+  if (!user) return null;
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
+
+
 app.use(cors());
 app.use(express.json());
+
+const JWT_SECRET = process.env.JWT_SECRET || "fallbacksecret";
 
 // Test route
 app.get("/", (req, res) => {
@@ -206,6 +222,212 @@ app.delete("/services/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to delete service" });
   }
 });
+
+// ---------------------
+// USERS CRUD
+// ---------------------
+
+// Create user (staff/admin/customer)
+app.post("/users", async (req, res) => {
+  try {
+    const { salonId, name, email, phone, role, password, commissionRate } = req.body;
+
+    // basic validation
+    if (!salonId || !name || !email || !role || !password) {
+      return res.status(400).json({ error: "salonId, name, email, role and password are required" });
+    }
+
+    // hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // create user
+    const newUser = await prisma.user.create({
+      data: {
+        salonId,
+        name,
+        email,
+        phone: phone || null,
+        role,
+        passwordHash,
+        commissionRate: commissionRate ?? 0,
+      },
+    });
+
+    // return user without passwordHash
+    const created = await prisma.user.findUnique({
+      where: { id: newUser.id },
+      select: {
+        id: true, name: true, email: true, phone: true, role: true,
+        salonId: true, commissionRate: true, createdAt: true, updatedAt: true
+      }
+    });
+
+    res.status(201).json(created);
+  } catch (err) {
+    console.error(err);
+    // handle unique constraint (email/phone) error from Prisma
+    if (err?.code === "P2002") {
+      return res.status(409).json({ error: "A user with that email or phone already exists." });
+    }
+    res.status(500).json({ error: "Failed to create user" });
+  }
+});
+
+// Get all users (optionally filter by salonId ?salonId=2)
+app.get("/users", async (req, res) => {
+  try {
+    const { salonId } = req.query;
+    const where = {};
+    if (salonId) where.salonId = parseInt(salonId);
+
+    const users = await prisma.user.findMany({
+      where,
+      select: {
+        id: true, name: true, email: true, phone: true, role: true,
+        salonId: true, commissionRate: true, createdAt: true, updatedAt: true
+      },
+      orderBy: { id: "asc" }
+    });
+
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+// Get single user by id
+app.get("/users/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true, name: true, email: true, phone: true, role: true,
+        salonId: true, commissionRate: true, createdAt: true, updatedAt: true
+      }
+    });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch user" });
+  }
+});
+
+// Update user (partial update allowed)
+app.put("/users/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { name, email, phone, role, password, salonId, commissionRate } = req.body;
+
+    // build update object dynamically
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (email !== undefined) data.email = email;
+    if (phone !== undefined) data.phone = phone;
+    if (role !== undefined) data.role = role;
+    if (salonId !== undefined) data.salonId = salonId;
+    if (commissionRate !== undefined) data.commissionRate = commissionRate;
+
+    // if password provided -> hash it
+    if (password !== undefined) {
+      data.passwordHash = await bcrypt.hash(password, 10);
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data
+    });
+
+    // fetch safe user
+    const safe = await prisma.user.findUnique({
+      where: { id: updated.id },
+      select: {
+        id: true, name: true, email: true, phone: true, role: true,
+        salonId: true, commissionRate: true, createdAt: true, updatedAt: true
+      }
+    });
+
+    res.json(safe);
+  } catch (err) {
+    console.error(err);
+    if (err?.code === "P2002") {
+      return res.status(409).json({ error: "Email or phone already in use." });
+    }
+    res.status(500).json({ error: "Failed to update user" });
+  }
+});
+
+// Delete a user
+app.delete("/users/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    await prisma.user.delete({ where: { id } });
+    res.json({ message: "User deleted successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
+// ------------------ LOGIN ROUTE ------------------
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // 1. Find user by email
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    // 2. Compare password
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    // 3. Generate JWT token
+    const token = jwt.sign(
+      { userId: user.id, role: user.role }, // payload
+      JWT_SECRET,                           // secret
+      { expiresIn: "1h" }                   // token expiry
+    );
+
+    res.json({ message: "Login successful", token });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+// ------------------ MIDDLEWARE ------------------
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
+
+  if (!token) return res.sendStatus(401);
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user; // attach decoded user data
+    next();
+  });
+}
+
+// ------------------ PROTECTED ROUTE ------------------
+app.get("/users", authenticateToken, async (req, res) => {
+  try {
+    const users = await prisma.user.findMany();
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+
 
 // Start server
 const PORT = process.env.PORT || 5000;
