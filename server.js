@@ -179,31 +179,24 @@ app.get("/services/:id", async (req, res) => {
   }
 });
 
-// Update a service
-// Update a service (partial update allowed)
-app.put('/services/:id', async (req, res) => {
+// Update service
+app.put("/services/:id", async (req, res) => {
   const { id } = req.params;
   const { name, description, price, durationMin } = req.body;
 
   try {
-    // Build updateData dynamically so only provided fields are updated
-    const updateData = {};
-    if (name !== undefined) updateData.name = name;
-    if (description !== undefined) updateData.description = description;
-    if (price !== undefined) updateData.price = price;
-    if (durationMin !== undefined) updateData.durationMin = durationMin;
-
     const updatedService = await prisma.service.update({
       where: { id: parseInt(id) },
-      data: updateData,
+      data: { name, description, price, durationMin },
     });
 
     res.json(updatedService);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Failed to update service' });
+    res.status(500).json({ error: "Failed to update service" });
   }
 });
+
 
 // Delete a service
 app.delete("/services/:id", async (req, res) => {
