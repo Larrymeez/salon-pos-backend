@@ -452,8 +452,37 @@ app.post("/payments", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Failed to create payment" });
   }
 });
+// Get all payments
+app.get("/payments", authMiddleware, async (req, res) => {
+  try {
+    const payments = await prisma.payment.findMany({
+      include: { appointment: true },
+    });
+    res.json(payments);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch payments" });
+  }
+});
 
+// Get payment by ID
+app.get("/payments/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
 
+    const payment = await prisma.payment.findUnique({
+      where: { id: parseInt(id) },
+      include: { appointment: true, salon: true },
+    });
+
+    if (!payment) return res.status(404).json({ error: "Payment not found" });
+
+    res.json(payment);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch payment" });
+  }
+});
 
 
 // Start server
